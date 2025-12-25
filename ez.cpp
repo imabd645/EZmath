@@ -8,6 +8,11 @@
 #include <functional>
 #include <memory>
 #include <cmath>
+#include <chrono>
+#include <thread>
+#include <random>
+#include <algorithm>
+#include <sys/stat.h>
 
 using namespace std;
 
@@ -889,6 +894,42 @@ class Interpreter {
                 }
             }
 
+            // File methods
+            if (obj.type == Value::FILE) {
+                if (n->method == "add" || n->method == "write") {
+                    if (obj.fileHandle && obj.fileHandle->is_open()) {
+                        for (auto& arg : args) {
+                            (*obj.fileHandle) << arg.toString();
+                        }
+                        obj.fileHandle->flush();
+                    }
+                    return Value::None();
+                }
+                if (n->method == "readLine") {
+                    if (obj.fileHandle && obj.fileHandle->is_open()) {
+                        string line;
+                        if (getline(*obj.fileHandle, line)) {
+                            return Value::String(line);
+                        }
+                    }
+                    return Value::None();
+                }
+                if (n->method == "readAll") {
+                    if (obj.fileHandle && obj.fileHandle->is_open()) {
+                        stringstream ss;
+                        ss << obj.fileHandle->rdbuf();
+                        return Value::String(ss.str());
+                    }
+                    return Value::None();
+                }
+                if (n->method == "close") {
+                    if (obj.fileHandle && obj.fileHandle->is_open()) {
+                        obj.fileHandle->close();
+                    }
+                    return Value::None();
+                }
+            }
+
             error("Unknown method: " + n->method, 0);
         }
 
@@ -1021,7 +1062,7 @@ public:
     Interpreter() {
         pushScope(); // Global scope
 
-        // Native functions
+        // ==================== FILE I/O ====================
         nativeFuncs["read"] = [](vector<Value>& args) {
             if (args.empty()) return Value::String("");
             ifstream f(args[0].toString());
@@ -1033,39 +1074,50 @@ public:
 
         nativeFuncs["write"] = [](vector<Value>& args) {
             if (args.size() < 2) return Value::None();
-            ofstream f(args[0].toString());
-            f << args[1].toString();
-            f.close();
-            return Value::Bool(true);
+            auto handle = make_shared<fstream>(args[0].toString(), ios::out | ios::trunc);
+            if (handle->is_open()) {
+                (*handle) << args[1].toString();
+            }
+            return Value::File(args[0].toString(), handle);
         };
 
         nativeFuncs["append"] = [](vector<Value>& args) {
             if (args.size() < 2) return Value::None();
-            ofstream f(args[0].toString(), ios::app);
-            f << args[1].toString();
-            f.close();
-            return Value::Bool(true);
-        };
-
-        nativeFuncs["num"] = [](vector<Value>& args) {
-            if (args.empty()) return Value::Number(0);
-            return Value::Number(args[0].toNumber());
-        };
-
-        nativeFuncs["str"] = [](vector<Value>& args) {
-            if (args.empty()) return Value::String("");
-            return Value::String(args[0].toString());
-        };
-
-        nativeFuncs["len"] = [](vector<Value>& args) {
-            if (args.empty()) return Value::Number(0);
-            if (args[0].type == Value::ARRAY) {
-                return Value::Number(args[0].array->size());
+            auto handle = make_shared<fstream>(args[0].toString(), ios::out | ios::app);
+            if (handle->is_open()) {
+                (*handle) << args[1].toString();
             }
-            if (args[0].type == Value::STR) {
-                return Value::Number(args[0].str.length());
+            return Value::File(args[0].toString(), handle);
+        };
+
+        nativeFuncs["open"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::None();
+            string mode = args.size() > 1 ? args[1].toString() : "r";
+            auto handle = make_shared<fstream>();
+            
+            if (mode == "r") {
+                handle->open(args[0].toString(), ios::in);
+            } else if (mode == "w") {
+                handle->open(args[0].toString(), ios::out | ios::trunc);
+            } else if (mode == "a") {
+                handle->open(args[0].toString(), ios::out | ios::app);
+            } else if (mode == "rw") {
+                handle->open(args[0].toString(), ios::in | ios::out);
             }
-            return Value::Number(args[0].toString().length());
+            
+            return Value::File(args[0].toString(), handle);
+        };
+
+        nativeFuncs["exists"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Bool(false);
+            struct stat buffer;
+            return Value::Bool(stat(args[0].toString().c_str(), &buffer) == 0);
+        };
+
+        // ==================== MATH ====================
+        nativeFuncs["abs"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            return Value::Number(abs(args[0].toNumber()));
         };
 
         nativeFuncs["sqrt"] = [](vector<Value>& args) {
@@ -1076,11 +1128,6 @@ public:
         nativeFuncs["pow"] = [](vector<Value>& args) {
             if (args.size() < 2) return Value::Number(0);
             return Value::Number(pow(args[0].toNumber(), args[1].toNumber()));
-        };
-
-        nativeFuncs["abs"] = [](vector<Value>& args) {
-            if (args.empty()) return Value::Number(0);
-            return Value::Number(abs(args[0].toNumber()));
         };
 
         nativeFuncs["floor"] = [](vector<Value>& args) {
@@ -1098,10 +1145,279 @@ public:
             return Value::Number(round(args[0].toNumber()));
         };
 
+        nativeFuncs["random"] = [](vector<Value>& args) {
+            static random_device rd;
+            static mt19937 gen(rd());
+            
+            if (args.empty()) {
+                uniform_real_distribution<> dis(0.0, 1.0);
+                return Value::Number(dis(gen));
+            }
+            
+            int min = 0, max = 100;
+            if (args.size() == 1) {
+                max = (int)args[0].toNumber();
+            } else if (args.size() >= 2) {
+                min = (int)args[0].toNumber();
+                max = (int)args[1].toNumber();
+            }
+            
+            uniform_int_distribution<> dis(min, max);
+            return Value::Number(dis(gen));
+        };
+
+        nativeFuncs["min"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            double minVal = args[0].toNumber();
+            for (auto& arg : args) {
+                minVal = std::min(minVal, arg.toNumber());
+            }
+            return Value::Number(minVal);
+        };
+
+        nativeFuncs["max"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            double maxVal = args[0].toNumber();
+            for (auto& arg : args) {
+                maxVal = std::max(maxVal, arg.toNumber());
+            }
+            return Value::Number(maxVal);
+        };
+
+        // ==================== STRING ====================
+        nativeFuncs["len"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            if (args[0].type == Value::ARRAY) {
+                return Value::Number(args[0].array->size());
+            }
+            if (args[0].type == Value::STR) {
+                return Value::Number(args[0].str.length());
+            }
+            return Value::Number(args[0].toString().length());
+        };
+
+        nativeFuncs["upper"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("");
+            string s = args[0].toString();
+            transform(s.begin(), s.end(), s.begin(), ::toupper);
+            return Value::String(s);
+        };
+
+        nativeFuncs["lower"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("");
+            string s = args[0].toString();
+            transform(s.begin(), s.end(), s.begin(), ::tolower);
+            return Value::String(s);
+        };
+
+        nativeFuncs["substr"] = [](vector<Value>& args) {
+            if (args.size() < 2) return Value::String("");
+            string s = args[0].toString();
+            int start = (int)args[1].toNumber();
+            int length = args.size() > 2 ? (int)args[2].toNumber() : s.length() - start;
+            
+            if (start < 0 || start >= (int)s.length()) return Value::String("");
+            return Value::String(s.substr(start, length));
+        };
+
+        nativeFuncs["split"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Array();
+            string s = args[0].toString();
+            string delim = args.size() > 1 ? args[1].toString() : " ";
+            
+            vector<Value> result;
+            size_t start = 0, end = 0;
+            
+            while ((end = s.find(delim, start)) != string::npos) {
+                result.push_back(Value::String(s.substr(start, end - start)));
+                start = end + delim.length();
+            }
+            result.push_back(Value::String(s.substr(start)));
+            
+            return Value::Array(result);
+        };
+
+        nativeFuncs["replace"] = [](vector<Value>& args) {
+            if (args.size() < 3) return Value::String("");
+            string s = args[0].toString();
+            string oldStr = args[1].toString();
+            string newStr = args[2].toString();
+            
+            size_t pos = 0;
+            while ((pos = s.find(oldStr, pos)) != string::npos) {
+                s.replace(pos, oldStr.length(), newStr);
+                pos += newStr.length();
+            }
+            
+            return Value::String(s);
+        };
+
+        nativeFuncs["trim"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("");
+            string s = args[0].toString();
+            
+            size_t start = s.find_first_not_of(" \t\n\r");
+            size_t end = s.find_last_not_of(" \t\n\r");
+            
+            if (start == string::npos) return Value::String("");
+            return Value::String(s.substr(start, end - start + 1));
+        };
+
+        nativeFuncs["charAt"] = [](vector<Value>& args) {
+            if (args.size() < 2) return Value::String("");
+            string s = args[0].toString();
+            int idx = (int)args[1].toNumber();
+            
+            if (idx < 0 || idx >= (int)s.length()) return Value::String("");
+            return Value::String(string(1, s[idx]));
+        };
+
+        // ==================== ARRAY ====================
+        nativeFuncs["push"] = [](vector<Value>& args) {
+            if (args.size() < 2) return Value::None();
+            if (args[0].type != Value::ARRAY) return Value::None();
+            
+            for (size_t i = 1; i < args.size(); i++) {
+                args[0].array->push_back(args[i]);
+            }
+            return Value::None();
+        };
+
+        nativeFuncs["pop"] = [](vector<Value>& args) {
+            if (args.empty() || args[0].type != Value::ARRAY) return Value::None();
+            if (args[0].array->empty()) return Value::None();
+            
+            Value last = args[0].array->back();
+            args[0].array->pop_back();
+            return last;
+        };
+
+        nativeFuncs["insert"] = [](vector<Value>& args) {
+            if (args.size() < 3 || args[0].type != Value::ARRAY) return Value::None();
+            
+            int idx = (int)args[1].toNumber();
+            if (idx < 0 || idx > (int)args[0].array->size()) return Value::None();
+            
+            args[0].array->insert(args[0].array->begin() + idx, args[2]);
+            return Value::None();
+        };
+
+        nativeFuncs["remove"] = [](vector<Value>& args) {
+            if (args.size() < 2 || args[0].type != Value::ARRAY) return Value::None();
+            
+            int idx = (int)args[1].toNumber();
+            if (idx < 0 || idx >= (int)args[0].array->size()) return Value::None();
+            
+            Value removed = (*args[0].array)[idx];
+            args[0].array->erase(args[0].array->begin() + idx);
+            return removed;
+        };
+
+        nativeFuncs["indexOf"] = [](vector<Value>& args) {
+            if (args.size() < 2 || args[0].type != Value::ARRAY) return Value::Number(-1);
+            
+            for (size_t i = 0; i < args[0].array->size(); i++) {
+                Value& elem = (*args[0].array)[i];
+                if (elem.type == args[1].type) {
+                    if (elem.type == Value::NUM && elem.num == args[1].num) return Value::Number(i);
+                    if (elem.type == Value::STR && elem.str == args[1].str) return Value::Number(i);
+                    if (elem.type == Value::BOOL && elem.boolean == args[1].boolean) return Value::Number(i);
+                }
+            }
+            
+            return Value::Number(-1);
+        };
+
+        nativeFuncs["join"] = [](vector<Value>& args) {
+            if (args.empty() || args[0].type != Value::ARRAY) return Value::String("");
+            string delim = args.size() > 1 ? args[1].toString() : ",";
+            
+            string result;
+            for (size_t i = 0; i < args[0].array->size(); i++) {
+                if (i > 0) result += delim;
+                result += (*args[0].array)[i].toString();
+            }
+            
+            return Value::String(result);
+        };
+
+        nativeFuncs["reverse"] = [](vector<Value>& args) {
+            if (args.empty() || args[0].type != Value::ARRAY) return Value::None();
+            reverse(args[0].array->begin(), args[0].array->end());
+            return Value::None();
+        };
+
+        nativeFuncs["sort"] = [](vector<Value>& args) {
+            if (args.empty() || args[0].type != Value::ARRAY) return Value::None();
+            
+            sort(args[0].array->begin(), args[0].array->end(), 
+                [](const Value& a, const Value& b) {
+                    return a.toNumber() < b.toNumber();
+                });
+            
+            return Value::None();
+        };
+
+        // ==================== TYPE CONVERSION ====================
+        nativeFuncs["num"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            return Value::Number(args[0].toNumber());
+        };
+
+        nativeFuncs["toNumber"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Number(0);
+            return Value::Number(args[0].toNumber());
+        };
+
+        nativeFuncs["str"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("");
+            return Value::String(args[0].toString());
+        };
+
+        nativeFuncs["toString"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("");
+            return Value::String(args[0].toString());
+        };
+
+        nativeFuncs["toBool"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::Bool(false);
+            return Value::Bool(args[0].toBool());
+        };
+
+        nativeFuncs["type"] = [](vector<Value>& args) {
+            if (args.empty()) return Value::String("none");
+            
+            switch (args[0].type) {
+                case Value::NUM: return Value::String("num");
+                case Value::STR: return Value::String("str");
+                case Value::BOOL: return Value::String("bool");
+                case Value::ARRAY: return Value::String("array");
+                case Value::FILE: return Value::String("file");
+                case Value::FUNC_REF: return Value::String("function");
+                default: return Value::String("none");
+            }
+        };
+
+        // ==================== UTILITY ====================
+        nativeFuncs["sleep"] = [](vector<Value>& args) -> Value {
+            if (args.empty()) return Value::None();
+            int ms = (int)args[0].toNumber();
+            std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+            return Value::None();
+        };
+
+        nativeFuncs["clock"] = [](vector<Value>& args) -> Value {
+            auto now = std::chrono::system_clock::now();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+            return Value::Number((double)ms);
+        };
+
+        // ==================== ARRAY CREATION ====================
         nativeFuncs["array"] = [](vector<Value>& args) {
             if (args.empty()) return Value::Array();
             int size = (int)args[0].toNumber();
-            vector<Value> arr(size, Value::Number(0));
+            Value fillValue = args.size() > 1 ? args[1] : Value::Number(0);
+            vector<Value> arr(size, fillValue);
             return Value::Array(arr);
         };
 
