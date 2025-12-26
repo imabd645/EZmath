@@ -1,7 +1,4 @@
-start=clock()
-num=0
-repeat i = 1 to 1000000 {
-    num=i+1
+task add(a,b){
+    out a+b
 }
-end=clock()-start
-out end
+give add(3,2)

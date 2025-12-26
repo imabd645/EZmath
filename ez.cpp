@@ -765,6 +765,24 @@ class EZ {
 
         if (cur().type == IDENT) {
             string varName = cur().text;
+            Token nextToken = peek();
+            
+            // Check if this is a standalone function call
+            if (nextToken.type == LPAREN) {
+                next(); // Move to identifier
+                next(); // Move to LPAREN
+                vector<Value> args;
+                while (cur().type != RPAREN && cur().type != END) {
+                    args.push_back(logicalOr());
+                    if (cur().type == COMMA) next();
+                }
+                if (cur().type != RPAREN) error("Expected ')'", cur().line);
+                next();
+                // Call the function and discard the return value
+                callFunction(varName, args);
+                return;
+            }
+            
             next();
             
             if (cur().type == INC) {
