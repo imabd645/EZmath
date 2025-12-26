@@ -1,3 +1,8 @@
-name = [1, 2, 3]
-arr=name*2
-out arr
+in x
+count=1
+until x equal 0{
+    x=x/10
+    count++
+
+}
+out count

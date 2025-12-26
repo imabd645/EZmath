@@ -24,6 +24,7 @@ enum TokenType
     MINUS,
     MUL,
     DIV,
+    INTDIV,
     MOD,
     ASSIGN,
     LPAREN,
@@ -126,9 +127,19 @@ vector<Token> tokenize(const string &src)
             continue;
         }
 
-        // Comment
+        // Integer division // or Comment
         if (src[i] == '/' && i + 1 < src.size() && src[i + 1] == '/')
         {
+            // Check if it's // followed by another / (that would be a comment starting with ///)
+            // or if it's just // followed by space/newline or other code (integer division)
+            if (i + 2 < src.size() && src[i + 2] != '/' && !isspace(src[i + 2]))
+            {
+                // It's integer division
+                tokens.push_back({INTDIV, "//", line});
+                i += 2;
+                continue;
+            }
+            // Otherwise it's a comment - skip to end of line
             while (i < src.size() && src[i] != '\n')
                 i++;
             continue;
@@ -838,7 +849,7 @@ class EZ
     Value term()
     {
         Value v = factor();
-        while (cur().type == MUL || cur().type == DIV || cur().type == MOD)
+        while (cur().type == MUL || cur().type == DIV || cur().type == INTDIV || cur().type == MOD)
         {
             TokenType op = cur().type;
             int line = cur().line;
@@ -856,6 +867,14 @@ class EZ
                 if (divisor == 0)
                     error("Division by zero", line);
                 v.num = v.toNumber() / divisor;
+                v.type = Value::NUM;
+            }
+            else if (op == INTDIV)
+            {
+                int divisor = (int)r.toNumber();
+                if (divisor == 0)
+                    error("Integer division by zero", line);
+                v.num = (int)v.toNumber() / divisor;
                 v.type = Value::NUM;
             }
             else
@@ -1298,7 +1317,39 @@ class EZ
             }
             return;
         }
+        if (cur().type == UNTIL) {
+            next();
+            size_t condStart = p;  // Save position BEFORE evaluating condition
+            Value cond = logicalOr();
+            size_t loopStart = p;  // Position after condition (where block starts)
 
+            // Loop while condition is TRUE (works like a while loop)
+            while (cond.toBool()) {
+                p = loopStart;
+                executeBlock();
+
+                if (flow == BREAK_FLAG) {
+                    flow = NONE;
+                    break;
+                }
+                if (flow == CONTINUE_FLAG) {
+                    flow = NONE;
+                    // continue to re-evaluate condition
+                }
+                if (flow == RETURN_FLAG) break;
+
+                // Re-evaluate condition for next iteration
+                p = condStart;
+                cond = logicalOr();
+                loopStart = p;  // Update in case of any side effects
+            }
+
+            // Skip the block if we never entered or after breaking out
+            if (cur().type == LBRACE) {
+                skipBlock();
+            }
+            return;
+        }
         if (cur().type == BREAK)
         {
             flow = BREAK_FLAG;
