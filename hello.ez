@@ -1,5 +1,5 @@
-name = [1, 2, 3]
-get x in name
-{
-    out x
-}
+list = [1,2,3,4,56,]
+// [10, 20, 30]
+
+arr=remove(list)
+out arr        // [10, 20]

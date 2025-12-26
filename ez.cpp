@@ -379,13 +379,14 @@ class EZ {
             return args[0];
         };
 
-        // remove(arr) - remove last element from array
+        // remove(arr) - remove last element from array and return modified array
         builtins["remove"] = [](vector<Value> &args, int line) -> Value {
             if (args.size() != 1) error("remove expects 1 argument", line);
             if (args[0].type != Value::ARR) error("remove expects array", line);
             if (args[0].arr.empty()) error("Cannot remove from empty array", line);
-            args[0].arr.pop_back();
-            return args[0];
+            Value result = args[0];
+            result.arr.pop_back();
+            return result;
         };
 
         // clock() - get current time in milliseconds
