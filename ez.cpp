@@ -7,6 +7,9 @@
 #include <cctype>
 #include <memory>
 #include <limits>
+#include <functional>
+#include <chrono>
+#include <thread>
 
 using namespace std;
 
@@ -22,6 +25,8 @@ enum TokenType {
     AND, OR, NOT,
     BREAK, CONTINUE,
     INC, DEC,
+    PLUSEQ, MINUSEQ, MULEQ, DIVEQ, MODEQ,
+    GET,
     END
 };
 
@@ -74,10 +79,11 @@ vector<Token> tokenize(const string &src) {
             continue;
         }
 
-        // Number
-        if (isdigit(src[i])) {
+        // Number (including negative numbers)
+        if (isdigit(src[i]) || (src[i] == '-' && i+1 < src.size() && isdigit(src[i+1]))) {
             string n;
             bool hasDot = false;
+            if (src[i] == '-') n += src[i++];
             while (i<src.size() && (isdigit(src[i]) || src[i]=='.')) {
                 if (src[i] == '.') {
                     if (hasDot) error("Invalid number format", line);
@@ -153,6 +159,7 @@ vector<Token> tokenize(const string &src) {
             else if (id=="and") tokens.push_back({AND,id,line});
             else if (id=="or") tokens.push_back({OR,id,line});
             else if (id=="not") tokens.push_back({NOT,id,line});
+            else if (id=="get") tokens.push_back({GET,id,line});
             else tokens.push_back({IDENT,id,line});
             continue;
         }
@@ -160,15 +167,26 @@ vector<Token> tokenize(const string &src) {
         // Operators
         if (src[i]=='+'){ 
             if (i+1<src.size() && src[i+1]=='+') { tokens.push_back({INC,"++",line}); i+=2; continue; }
+            if (i+1<src.size() && src[i+1]=='=') { tokens.push_back({PLUSEQ,"+=",line}); i+=2; continue; }
             tokens.push_back({PLUS,"+",line}); i++; continue; 
         }
         if (src[i]=='-'){ 
             if (i+1<src.size() && src[i+1]=='-') { tokens.push_back({DEC,"--",line}); i+=2; continue; }
+            if (i+1<src.size() && src[i+1]=='=') { tokens.push_back({MINUSEQ,"-=",line}); i+=2; continue; }
             tokens.push_back({MINUS,"-",line}); i++; continue; 
         }
-        if (src[i]=='*'){ tokens.push_back({MUL,"*",line}); i++; continue; }
-        if (src[i]=='/'){ tokens.push_back({DIV,"/",line}); i++; continue; }
-        if (src[i]=='%'){ tokens.push_back({MOD,"%",line}); i++; continue; }
+        if (src[i]=='*'){ 
+            if (i+1<src.size() && src[i+1]=='=') { tokens.push_back({MULEQ,"*=",line}); i+=2; continue; }
+            tokens.push_back({MUL,"*",line}); i++; continue; 
+        }
+        if (src[i]=='/'){ 
+            if (i+1<src.size() && src[i+1]=='=') { tokens.push_back({DIVEQ,"/=",line}); i+=2; continue; }
+            tokens.push_back({DIV,"/",line}); i++; continue; 
+        }
+        if (src[i]=='%'){ 
+            if (i+1<src.size() && src[i+1]=='=') { tokens.push_back({MODEQ,"%=",line}); i+=2; continue; }
+            tokens.push_back({MOD,"%",line}); i++; continue; 
+        }
         if (src[i]=='='){
             if (i+1<src.size() && src[i+1]=='='){ tokens.push_back({EQ,"==",line}); i+=2; continue; }
             tokens.push_back({ASSIGN,"=",line}); i++; continue;
@@ -270,7 +288,6 @@ struct Value {
 
     bool equals(const Value &other) const {
         if (type != other.type) {
-            // Compare by string representation for mixed types
             return toString() == other.toString();
         }
         if (type == NUM) return num == other.num;
@@ -295,6 +312,7 @@ class EZ {
     size_t p = 0;
     vector<unordered_map<string, Value>> scopes;
     unordered_map<string, Function> functions;
+    unordered_map<string, function<Value(vector<Value>&, int)>> builtins;
     ControlFlow flow = NONE;
     Value returnValue;
     int recursionDepth = 0;
@@ -331,6 +349,62 @@ class EZ {
         }
         error("Undefined variable: " + name, cur().line);
         return Value::Number(0);
+    }
+
+    bool varExists(const string &name) {
+        for (int i = scopes.size() - 1; i >= 0; i--) {
+            if (scopes[i].count(name)) return true;
+        }
+        return false;
+    }
+
+    void initBuiltins() {
+        // len(arr) - get array length
+        builtins["len"] = [](vector<Value> &args, int line) -> Value {
+            if (args.size() != 1) error("len expects 1 argument", line);
+            if (args[0].type == Value::ARR) {
+                return Value::Number(args[0].arr.size());
+            } else if (args[0].type == Value::STR) {
+                return Value::Number(args[0].str.length());
+            }
+            error("len expects array or string", line);
+            return Value::Number(0);
+        };
+
+        // add(arr, value) - add to array
+        builtins["add"] = [this](vector<Value> &args, int line) -> Value {
+            if (args.size() != 2) error("add expects 2 arguments (array, value)", line);
+            if (args[0].type != Value::ARR) error("First argument to add must be array", line);
+            args[0].arr.push_back(args[1]);
+            return args[0];
+        };
+
+        // remove(arr) - remove last element from array
+        builtins["remove"] = [](vector<Value> &args, int line) -> Value {
+            if (args.size() != 1) error("remove expects 1 argument", line);
+            if (args[0].type != Value::ARR) error("remove expects array", line);
+            if (args[0].arr.empty()) error("Cannot remove from empty array", line);
+            args[0].arr.pop_back();
+            return args[0];
+        };
+
+        // clock() - get current time in milliseconds
+        builtins["clock"] = [](vector<Value> &args, int line) -> Value {
+            if (args.size() != 0) error("clock expects no arguments", line);
+            auto now = chrono::system_clock::now();
+            auto duration = now.time_since_epoch();
+            auto millis = chrono::duration_cast<chrono::milliseconds>(duration).count();
+            return Value::Number(static_cast<double>(millis));
+        };
+
+        // stop(milliseconds) - sleep for given milliseconds
+        builtins["stop"] = [](vector<Value> &args, int line) -> Value {
+            if (args.size() != 1) error("stop expects 1 argument (milliseconds)", line);
+            int ms = static_cast<int>(args[0].toNumber());
+            if (ms < 0) error("stop duration must be non-negative", line);
+            this_thread::sleep_for(chrono::milliseconds(ms));
+            return Value::Number(0);
+        };
     }
 
     Value factor() {
@@ -371,7 +445,11 @@ class EZ {
             vector<Value> arr;
             while (cur().type != RBRACKET && cur().type != END) {
                 arr.push_back(logicalOr());
-                if (cur().type == COMMA) next();
+                if (cur().type == COMMA) {
+                    next();
+                } else if (cur().type != RBRACKET) {
+                    error("Expected ',' or ']' in array literal", cur().line);
+                }
             }
             if (cur().type != RBRACKET) error("Expected ']'", cur().line);
             next();
@@ -501,7 +579,6 @@ class EZ {
         while (cur().type == AND) {
             next();
             if (!v.toBool()) {
-                // Short-circuit: skip evaluation of right side
                 comparison();
                 return Value::Bool(false);
             }
@@ -516,7 +593,6 @@ class EZ {
         while (cur().type == OR) {
             next();
             if (v.toBool()) {
-                // Short-circuit: skip evaluation of right side
                 logicalAnd();
                 return Value::Bool(true);
             }
@@ -537,7 +613,12 @@ class EZ {
         }
     }
 
-    Value callFunction(const string &name, const vector<Value> &args) {
+    Value callFunction(const string &name, vector<Value> args) {
+        // Check if it's a builtin function
+        if (builtins.count(name)) {
+            return builtins[name](args, cur().line);
+        }
+        
         if (!functions.count(name)) 
             error("Undefined function: " + name, cur().line);
         
@@ -624,16 +705,81 @@ class EZ {
             
             if (cond.toBool()) {
                 executeBlock();
-                if (cur().type == ELSE) {
-                    next();
+                // Skip all "when other" and "other" blocks
+                while (cur().type == IF || cur().type == ELSE) {
+                    if (cur().type == IF) {
+                        next();
+                        logicalOr(); // Skip condition
+                    } else {
+                        next();
+                    }
                     skipBlock();
                 }
             } else {
                 skipBlock();
+                // Check for "when other" (else if)
+                while (cur().type == IF) {
+                    next();
+                    Value elseCond = logicalOr();
+                    if (elseCond.toBool()) {
+                        executeBlock();
+                        // Skip remaining blocks
+                        while (cur().type == IF || cur().type == ELSE) {
+                            if (cur().type == IF) {
+                                next();
+                                logicalOr();
+                            } else {
+                                next();
+                            }
+                            skipBlock();
+                        }
+                        return;
+                    } else {
+                        skipBlock();
+                    }
+                }
+                // Final "other" (else)
                 if (cur().type == ELSE) {
                     next();
                     executeBlock();
                 }
+            }
+            return;
+        }
+
+        // Foreach loop: get x in array
+        if (cur().type == GET) {
+            next();
+            if (cur().type != IDENT) error("Expected variable name after 'get'", cur().line);
+            string varName = cur().text;
+            next();
+            
+            if (cur().type != INPUT) error("Expected 'in' after variable name in foreach loop", cur().line);
+            next();
+            
+            if (cur().type != IDENT) error("Expected array name after 'in'", cur().line);
+            string arrayName = cur().text;
+            next();
+            
+            Value arr = getVar(arrayName);
+            if (arr.type != Value::ARR) error("Expected array in foreach loop: " + arrayName, cur().line);
+            
+            size_t loopStart = p;
+            
+            for (size_t i = 0; i < arr.arr.size(); i++) {
+                setVar(varName, arr.arr[i]);
+                p = loopStart;
+                executeBlock();
+                
+                if (flow == BREAK_FLAG) {
+                    flow = NONE;
+                    break;
+                }
+                if (flow == CONTINUE_FLAG) {
+                    flow = NONE;
+                    continue;
+                }
+                if (flow == RETURN_FLAG) break;
             }
             return;
         }
@@ -656,59 +802,39 @@ class EZ {
             int startVal = (int)start.toNumber();
             int endVal = (int)end.toNumber();
             
-            for (int i = startVal; i <= endVal; i++) {
-                setVar(varName, Value::Number(i));
-                p = loopStart;
-                executeBlock();
-                
-                if (flow == BREAK_FLAG) {
-                    flow = NONE;
-                    break;
+            // Support both forward and backward loops
+            if (startVal <= endVal) {
+                for (int i = startVal; i <= endVal; i++) {
+                    setVar(varName, Value::Number(i));
+                    p = loopStart;
+                    executeBlock();
+                    
+                    if (flow == BREAK_FLAG) {
+                        flow = NONE;
+                        break;
+                    }
+                    if (flow == CONTINUE_FLAG) {
+                        flow = NONE;
+                        continue;
+                    }
+                    if (flow == RETURN_FLAG) break;
                 }
-                if (flow == CONTINUE_FLAG) {
-                    flow = NONE;
-                    continue;
+            } else {
+                for (int i = startVal; i >= endVal; i--) {
+                    setVar(varName, Value::Number(i));
+                    p = loopStart;
+                    executeBlock();
+                    
+                    if (flow == BREAK_FLAG) {
+                        flow = NONE;
+                        break;
+                    }
+                    if (flow == CONTINUE_FLAG) {
+                        flow = NONE;
+                        continue;
+                    }
+                    if (flow == RETURN_FLAG) break;
                 }
-                if (flow == RETURN_FLAG) break;
-            }
-            return;
-        }
-
-        // Until loop (while loop)
-        if (cur().type == UNTIL) {
-            next();
-            size_t condStart = p;
-            size_t blockStart = 0;
-            
-            // First, evaluate condition to find where block starts
-            Value cond = logicalOr();
-            blockStart = p;
-            
-            while (true) {
-                // Re-evaluate condition
-                p = condStart;
-                cond = logicalOr();
-                
-                if (!cond.toBool()) {
-                    // Skip the block and exit
-                    p = blockStart;
-                    skipBlock();
-                    break;
-                }
-                
-                // Reset to block start and execute
-                p = blockStart;
-                executeBlock();
-                
-                if (flow == BREAK_FLAG) {
-                    flow = NONE;
-                    break;
-                }
-                if (flow == CONTINUE_FLAG) {
-                    flow = NONE;
-                    continue;
-                }
-                if (flow == RETURN_FLAG) break;
             }
             return;
         }
@@ -737,12 +863,12 @@ class EZ {
         if (cur().type == FUNC) {
             next();
             if (cur().type != IDENT) error("Expected function name", cur().line);
-            string funcName = cur().text;
+            string fname = cur().text;
             next();
-            
+
             if (cur().type != LPAREN) error("Expected '(' after function name", cur().line);
             next();
-            
+
             vector<string> params;
             while (cur().type != RPAREN && cur().type != END) {
                 if (cur().type != IDENT) error("Expected parameter name", cur().line);
@@ -750,105 +876,114 @@ class EZ {
                 next();
                 if (cur().type == COMMA) next();
             }
-            
-            if (cur().type != RPAREN) error("Expected ')'", cur().line);
+            if (cur().type != RPAREN) error("Expected ')' after parameters", cur().line);
             next();
-            
-            Function func;
-            func.params = params;
-            func.bodyStart = p;
-            functions[funcName] = func;
-            
+
+            functions[fname] = {params, p};
             skipBlock();
             return;
         }
 
+        // Assignment and compound operators
         if (cur().type == IDENT) {
             string varName = cur().text;
-            Token nextToken = peek();
-            
-            // Check if this is a standalone function call
-            if (nextToken.type == LPAREN) {
-                next(); // Move to identifier
-                next(); // Move to LPAREN
-                vector<Value> args;
-                while (cur().type != RPAREN && cur().type != END) {
-                    args.push_back(logicalOr());
-                    if (cur().type == COMMA) next();
-                }
-                if (cur().type != RPAREN) error("Expected ')'", cur().line);
+            int line = cur().line;
+            next();
+
+            // Array element assignment
+            if (cur().type == LBRACKET) {
                 next();
-                // Call the function and discard the return value
-                callFunction(varName, args);
+                Value idx = logicalOr();
+                if (cur().type != RBRACKET) error("Expected ']'", cur().line);
+                next();
+
+                if (cur().type == ASSIGN) {
+                    next();
+                    Value newVal = logicalOr();
+                    Value arr = getVar(varName);
+                    if (arr.type != Value::ARR) error("Not an array: " + varName, line);
+                    int i = (int)idx.toNumber();
+                    if (i < 0 || i >= (int)arr.arr.size()) 
+                        error("Array index out of bounds: " + to_string(i), line);
+                    arr.arr[i] = newVal;
+                    setVar(varName, arr);
+                    return;
+                }
+                error("Expected '=' after array index", cur().line);
+            }
+
+            // Regular assignment
+            if (cur().type == ASSIGN) {
+                next();
+                Value val = logicalOr();
+                setVar(varName, val);
                 return;
             }
-            
-            next();
-            
+
+            // Compound assignments
+            if (cur().type == PLUSEQ || cur().type == MINUSEQ || 
+                cur().type == MULEQ || cur().type == DIVEQ || cur().type == MODEQ) {
+                TokenType op = cur().type;
+                next();
+                Value right = logicalOr();
+                Value left = getVar(varName);
+
+                if (op == PLUSEQ) {
+                    if (left.type == Value::STR || right.type == Value::STR) {
+                        setVar(varName, Value::String(left.toString() + right.toString()));
+                    } else {
+                        setVar(varName, Value::Number(left.toNumber() + right.toNumber()));
+                    }
+                } else if (op == MINUSEQ) {
+                    setVar(varName, Value::Number(left.toNumber() - right.toNumber()));
+                } else if (op == MULEQ) {
+                    setVar(varName, Value::Number(left.toNumber() * right.toNumber()));
+                } else if (op == DIVEQ) {
+                    double divisor = right.toNumber();
+                    if (divisor == 0) error("Division by zero", line);
+                    setVar(varName, Value::Number(left.toNumber() / divisor));
+                } else if (op == MODEQ) {
+                    int divisor = (int)right.toNumber();
+                    if (divisor == 0) error("Modulo by zero", line);
+                    setVar(varName, Value::Number((int)left.toNumber() % divisor));
+                }
+                return;
+            }
+
+            // Increment/Decrement
             if (cur().type == INC) {
                 next();
                 Value v = getVar(varName);
                 setVar(varName, Value::Number(v.toNumber() + 1));
                 return;
             }
-            
+
             if (cur().type == DEC) {
                 next();
                 Value v = getVar(varName);
                 setVar(varName, Value::Number(v.toNumber() - 1));
                 return;
             }
-            
-            if (cur().type == LBRACKET) {
-                next();
-                Value idx = logicalOr();
-                if (cur().type != RBRACKET) error("Expected ']'", cur().line);
-                next();
-                
-                if (cur().type != ASSIGN) error("Expected '='", cur().line);
-                next();
-                
-                Value newVal = logicalOr();
-                Value arr = getVar(varName);
-                
-                if (arr.type != Value::ARR) error("Not an array: " + varName, cur().line);
-                int i = (int)idx.toNumber();
-                if (i < 0 || i >= (int)arr.arr.size()) 
-                    error("Array index out of bounds: " + to_string(i), cur().line);
-                
-                arr.arr[i] = newVal;
-                setVar(varName, arr);
-                return;
-            }
-            
-            if (cur().type != ASSIGN) error("Expected '=' after " + varName, cur().line);
-            next();
-            Value v = logicalOr();
-            setVar(varName, v);
+
+            // If none of the above, it's a function call or standalone expression
+            p--;
+            logicalOr();
             return;
         }
 
-        if (cur().type != END && cur().type != RBRACE) {
-            error("Unexpected token: " + cur().text, cur().line);
-        }
+        // Standalone expression
+        logicalOr();
     }
 
 public:
-    EZ(vector<Token> tokens) : t(tokens) {
+    void run(const vector<Token> &tokens) {
+        t = tokens;
+        p = 0;
         scopes.push_back({});
-    }
+        initBuiltins();
 
-    void run() {
-        try {
-            while (cur().type != END && flow == NONE) {
-                statement();
-            }
-        } catch (const InterpreterException &e) {
-            cerr << e.what() << endl;
-            exit(1);
-        } catch (const exception &e) {
-            cerr << "Runtime error: " << e.what() << endl;
-            exit(1);
+        while (cur().type != END) {
+            statement();
         }
     }
 };
@@ -856,30 +991,20 @@ public:
 // ===================== MAIN =====================
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        cout << "EZ Interpreter v2.1\n";
-        cout << "Usage: ez file.ez\n\n";
-        cout << "Features:\n";
-        cout << "  - Variables and arrays\n";
-        cout << "  - Conditionals (when/other)\n";
-        cout << "  - For loops (repeat...to)\n";
-        cout << "  - While loops (until condition)\n";
-        cout << "  - Functions (task)\n";
-        cout << "  - Input/Output (in/out)\n";
-        cout << "  - Break/Continue (escape/skip)\n";
-        cout << "  - Increment/Decrement (i++, i--)\n";
-        cout << "  - String comparison and concatenation\n";
-        cout << "  - Short-circuit evaluation\n";
-        cout << "  - Escape sequences in strings\n";
-        return 0;
+        cout << "Usage: " << argv[0] << " <filename.ez>" << endl;
+        return 1;
     }
 
     try {
         string code = readFile(argv[1]);
-        auto tokens = tokenize(code);
-        EZ ez(tokens);
-        ez.run();
+        vector<Token> tokens = tokenize(code);
+        EZ interpreter;
+        interpreter.run(tokens);
+    } catch (const InterpreterException &e) {
+        cerr << e.what() << endl;
+        return 1;
     } catch (const exception &e) {
-        cerr << "Fatal error: " << e.what() << endl;
+        cerr << "Unexpected error: " << e.what() << endl;
         return 1;
     }
 

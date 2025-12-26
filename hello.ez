@@ -1,4 +1,5 @@
-task add(a,b){
-    out a+b
+name = [1, 2, 3]
+get x in name
+{
+    out x
 }
-give add(3,2)
