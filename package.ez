@@ -1,0 +1,9 @@
+{
+  "name": "math",
+  "version": "1.0.0",
+  "description": "Basic math functions including cosine",
+  "author": "EZ Package Manager",
+  "main": "math.ez",
+  "repository": "https://github.com/imabd645/EZ",
+  "dependencies": {}
+}

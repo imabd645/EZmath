@@ -1,0 +1,12 @@
+# Math EZ Library
+
+A simple math library for the EZ programming language with cosine and other basic math functions.
+
+## Installation
+
+```bash
+# Using the package manager
+ez pkg local ./math
+
+# Or from GitHub (when published)
+ez pkg install math
