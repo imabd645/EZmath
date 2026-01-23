@@ -2,7 +2,8 @@
 
 A comprehensive mathematics library for the EZ programming language, providing trigonometric functions, vector operations, statistics, and more—all implemented from scratch using mathematical algorithms.
 
-
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/imabd645/EZmath)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 ## Features
 
@@ -38,10 +39,10 @@ A comprehensive mathematics library for the EZ programming language, providing t
 
 ```bash
 # Install from GitHub
-ez install math
+ez install EZmath
 
 # Or install from local directory
-cd Zmath
+cd EZmath
 ez install .
 ```
 
@@ -50,7 +51,7 @@ ez install .
 ## Quick Start
 
 ```ez
-use "math"
+use "EZmath"
 
 // Basic trigonometry
 angle = 45
@@ -165,7 +166,7 @@ result = tand(45)  // 1.0
 
 **Example - Trigonometry:**
 ```ez
-use "math"
+use "EZmath"
 
 // Calculate all trig functions for 30°
 angle = 30
@@ -338,7 +339,7 @@ dot = vec_dot(v1, v2)  // 11
 
 **Example - Vector Math:**
 ```ez
-use "math"
+use "EZmath"
 
 // Create vectors
 a = vec3(1, 0, 0)
@@ -419,7 +420,7 @@ sd = stddev(data)  // 1.414
 
 **Example - Statistics:**
 ```ez
-use "math"
+use "EZmath"
 
 test_scores = [85, 90, 78, 92, 88, 95]
 
@@ -464,7 +465,7 @@ lerp(10, 20, 0.25)  // 12.5
 
 **Example - Animation:**
 ```ez
-use "math"
+use "EZmath"
 
 start_pos = 0
 end_pos = 100
@@ -495,7 +496,7 @@ angle = angle_between(v1, v2)  // 90 degrees
 ### Example 1: Circle Calculator
 
 ```ez
-use "math"
+use "EZmath"
 
 task calculate_circle(radius) {
     area = pi() * radius * radius
@@ -516,7 +517,7 @@ calculate_circle(5)
 ### Example 2: Projectile Motion
 
 ```ez
-use "math"
+use "EZmath"
 
 task projectile(velocity, angle_degrees, time) {
     angle_rad = deg_to_rad(angle_degrees)
@@ -541,7 +542,7 @@ repeat t = 0 to 5 {
 ### Example 3: Vector Field
 
 ```ez
-use "math"
+use "EZmath"
 
 task vector_field(x, y) {
     // Create a circular vector field
@@ -568,7 +569,7 @@ repeat x = -2 to 2 {
 ### Example 4: Statistics Dashboard
 
 ```ez
-use "math"
+use "EZmath"
 
 task analyze_data(dataset) {
     out "Dataset Analysis"
@@ -607,7 +608,7 @@ analyze_data(sales_data)
 ### Example 5: Game Physics Helper
 
 ```ez
-use "math"
+use "EZmath"
 
 // Player position and velocity
 player_pos = vec2(0, 0)
