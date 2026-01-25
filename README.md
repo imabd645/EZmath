@@ -43,7 +43,7 @@ use "math"
 ## Examples
 
 ```ez
-use "src/math.ez"
+use "math"
 
 // Vector operations
 pos = Vector3(10, 0, 0)
@@ -59,3 +59,4 @@ out "Class Average: " + str(stats.mean())
 angle = 45
 out "Height: " + str(sind(angle) * 100)
 ```
+
