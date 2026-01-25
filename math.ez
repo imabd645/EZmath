@@ -1,343 +1,145 @@
-// math.ez - Basic math functions library
-// Simple implementation of cosine using Taylor series approximation
+// ============================================================================
+// MATH - Mathematical Utilities and Vector Library for EZ (v2.0)
+// Modernized using Model system and native built-ins
+// ============================================================================
 
-// Constants
-task pi() {
-    give 3.141592653589793
-}
+// --- Constants ---
+task PI() { give 3.141592653589793 }
+task E()  { give 2.718281828459045 }
 
-task deg_to_rad(degrees) {
-    give degrees * (pi() / 180.0)
-}
+// --- Conversion ---
+task degToRad(d) { give d * (PI() / 180.0) }
+task radToDeg(r) { give r * (180.0 / PI()) }
 
-task rad_to_deg(radians) {
-    give radians * (180.0 / pi())
-}
+// --- Utilities (Leveraging Built-ins) ---
+// Note: sqrt, pow, abs, floor, ceil are built-ins in EZ
 
-// Factorial helper function
+// --- Trigonometry (Taylor Series Approximations) ---
 task factorial(n) {
-    when n <= 1 {
-        give 1
-    }
-    other {
-        give n * factorial(n - 1)
-    }
+    when n <= 1 { give 1 }
+    give n * factorial(n - 1)
 }
 
-// Cosine function using Taylor series
-// cos(x) = 1 - x²/2! + x⁴/4! - x⁶/6! + ...
-task cos(angle) {
-    // Convert degrees to radians if needed
-    // We'll assume input is in radians by default
-    x = angle
+task cos(x) {
+    // Normalize to [-PI, PI]
+    p2 = 2 * PI()
+    while x > PI() { x = x - p2 }
+    while x < -PI() { x = x + p2 }
     
-    // Normalize angle to [-π, π]
-    when x > pi() {
-        repeat i = 0 to 10 {
-            x = x - 2 * pi()
-            when x <= pi() {
-                escape
-            }
-        }
-    }
-    when x < -1*pi() {
-        repeat i = 0 to 10 {
-            x = x + 2 * pi()
-            when x >= -pi() {
-                escape
-            }
-        }
-    }
-    
-    // Taylor series approximation (6 terms for good accuracy)
-    result = 1.0
+    // Taylor series (6 terms)
+    res = 1.0
     term = 1.0
     sign = -1.0
-    
     repeat n = 1 to 6 {
-        exponent = 2 * n
-        term = term * x * x / ((exponent - 1) * exponent)
-        result = result + sign * term
+        exp = 2 * n
+        term = term * x * x / ((exp - 1) * exp)
+        res = res + sign * term
         sign = sign * -1.0
     }
+    give res
+}
+
+task sin(x) { give cos(PI() / 2.0 - x) }
+task tan(x) {
+    c = cos(x)
+    when abs(c) < 0.0000001 { throw "Division by zero in tan()" }
+    give sin(x) / c
+}
+
+// Degrees versions
+task cosd(d) { give cos(degToRad(d)) }
+task sind(d) { give sin(degToRad(d)) }
+task tand(d) { give tan(degToRad(d)) }
+
+// --- Models ---
+
+model Vector2 {
+    init(x, y) {
+        self.x = x
+        self.y = y
+    }
+
+    task length() { give sqrt(self.x * self.x + self.y * self.y) }
     
-    give result
-}
-
-// Cosine with degrees input
-task cosd(degrees) {
-    radians = deg_to_rad(degrees)
-    give cos(radians)
-}
-
-// Sine function using identity sin(x) = cos(π/2 - x)
-task sin(angle) {
-    give cos(pi() / 2 - angle)
-}
-
-task sind(degrees) {
-    radians = deg_to_rad(degrees)
-    give sin(radians)
-}
-
-// Tangent function
-task tan(angle) {
-    cos_val = cos(angle)
-    when abs(cos_val) < 0.0000001 {
-        error "Division by zero in tan()"
-    }
-    give sin(angle) / cos_val
-}
-
-task tand(degrees) {
-    radians = deg_to_rad(degrees)
-    give tan(radians)
-}
-
-// Absolute value
-task abs(x) {
-    when x < 0 {
-        give -x
-    }
-    other {
-        give x
-    }
-}
-
-// Power function
-task pow(base, exponent) {
-    result = 1.0
-    repeat i = 1 to exponent {
-        result = result * base
-    }
-    give result
-}
-
-// Square root using Babylonian method
-task sqrt(x) {
-    when x < 0 {
-        error "Cannot take square root of negative number"
-    }
-    when x == 0 {
-        give 0
-    }
-    
-    guess = x / 2.0
-    repeat i = 1 to 10 {
-        guess = (guess + x / guess) / 2.0
-    }
-    give guess
-}
-
-// Exponential function e^x
-task exp(x) {
-    result = 1.0
-    term = 1.0
-    
-    repeat n = 1 to 10 {
-        term = term * x / n
-        result = result + term
-    }
-    
-    give result
-}
-
-// Natural logarithm using Taylor series
-task ln(x) {
-    when x <= 0 {
-        error "ln() argument must be positive"
-    }
-    
-    // Use identity ln(x) = 2 * sum_{k=0}^∞ ((x-1)/(x+1))^{2k+1} / (2k+1)
-    y = (x - 1) / (x + 1)
-    result = 0.0
-    
-    repeat k = 0 to 10 {
-        power = 2 * k + 1
-        term = pow(y, power) / power
-        result = result + term
-    }
-    
-    give 2 * result
-}
-
-// Test function to demonstrate usage
-task test() {
-    out "Math Library Test"
-    out "================="
-    
-    // Test pi constant
-    out "π = " + pi()
-    
-    // Test cosine
-    angles = [0, 30, 45, 60, 90, 180]
-    get angle in angles {
-        out "cos(" + angle + "°) = " + cosd(angle)
-    }
-    
-    out ""
-    // Test in radians
-    rad_angles = [0, pi()/6, pi()/4, pi()/3, pi()/2, pi()]
-    get angle in rad_angles {
-        out "cos(" + angle + " rad) = " + cos(angle)
-    }
-    
-    // Test conversion
-    out ""
-    out "Degrees to radians= 180° = " + deg_to_rad(180) + " rad"
-    out "Radians to degrees= π rad = " + rad_to_deg(pi()) + "°"
-    
-    give "Test completed"
-}
-
-// Vector operations
-task vec2(x, y) {
-    give {x= x, y= y}
-}
-
-task vec3(x, y, z) {
-    give {x= x, y= y, z= z}
-}
-
-task vec_length(vec) {
-    when "z" in vec {
-        give sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
-    }
-    other {
-        give sqrt(vec.x * vec.x + vec.y * vec.y)
-    }
-}
-
-task vec_normalize(vec) {
-    len = vec_length(vec)
-    when len == 0 {
-        give vec
-    }
-    other {
-        when "z" in vec {
-            give {x= vec.x / len, y= vec.y / len, z= vec.z / len}
+    task normalize() {
+        len = self.length()
+        when len > 0 {
+            self.x = self.x / len
+            self.y = self.y / len
         }
-        other {
-            give {x= vec.x / len, y= vec.y / len}
+        give self
+    }
+
+    task dot(v) {
+        give self.x * v.x + self.y * v.y
+    }
+    
+    task print() {
+        out "Vec2(" + str(self.x) + ", " + str(self.y) + ")"
+    }
+}
+
+model Vector3 {
+    init(x, y, z) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    task length() { give sqrt(self.x * self.x + self.y * self.y + self.z * self.z) }
+
+    task normalize() {
+        len = self.length()
+        when len > 0 {
+            self.x = self.x / len
+            self.y = self.y / len
+            self.z = self.z / len
         }
+        give self
     }
-}
 
-task vec_dot(v1, v2) {
-    when "z" in v1 and "z" in v2 {
-        give v1.x * v2.x + v1.y * v2.y + v1.z * v2.z
+    task dot(v) {
+        give self.x * v.x + self.y * v.y + self.z * v.z
     }
-    other {
-        give v1.x * v2.x + v1.y * v2.y
-    }
-}
-
-// 2D Rotation
-task rotate_point(point, angle_degrees) {
-    angle = deg_to_rad(angle_degrees)
-    cos_a = cos(angle)
-    sin_a = sin(angle)
     
-    x_new = point.x * cos_a - point.y * sin_a
-    y_new = point.x * sin_a + point.y * cos_a
-    
-    give {x= x_new, y= y_new}
-}
-
-// Statistics
-task mean(arr) {
-    sum = 0
-    get val in arr {
-        sum = sum + val
-    }
-    give sum / len(arr)
-}
-
-task variance(arr) {
-    avg = mean(arr)
-    sum_sq = 0
-    get val in arr {
-        diff = val - avg
-        sum_sq = sum_sq + diff * diff
-    }
-    give sum_sq / len(arr)
-}
-
-task stddev(arr) {
-    give sqrt(variance(arr))
-}
-
-// Rounding functions
-task round(x) {
-    when x >= 0 {
-        give int(x + 0.5)
-    }
-    other {
-        give int(x - 0.5)
+    task print() {
+        out "Vec3(" + str(self.x) + ", " + str(self.y) + ", " + str(self.z) + ")"
     }
 }
 
-task floor(x) {
-    int_val = int(x)
-    when x >= 0 or x == int_val {
-        give int_val
+model Statistics {
+    init(data) {
+        self.data = data
     }
-    other {
-        give int_val - 1
+
+    task mean() {
+        when self.data.len == 0 { give 0 }
+        sum = 0
+        get v in self.data { sum = sum + v }
+        give sum / self.data.len
     }
+
+    task variance() {
+        when self.data.len == 0 { give 0 }
+        avg = self.mean()
+        sumSq = 0
+        get v in self.data {
+            d = v - avg
+            sumSq = sumSq + d * d
+        }
+        give sumSq / self.data.len
+    }
+
+    task stddev() { give sqrt(self.variance()) }
 }
 
-task ceil(x) {
-    int_val = int(x)
-    when x <= 0 or x == int_val {
-        give int_val
-    }
-    other {
-        give int_val + 1
-    }
-}
-
-// Clamping
-task clamp(value, min_val, max_val) {
-    when value < min_val {
-        give min_val
-    }
-    when value > max_val {
-        give max_val
-    }
-    other {
-        give value
-    }
+// --- Helpers ---
+task clamp(v, minV, maxV) {
+    when v < minV { give minV }
+    when v > maxV { give maxV }
+    give v
 }
 
 task lerp(a, b, t) {
     give a + (b - a) * clamp(t, 0, 1)
 }
-
-// Angle utilities
-task angle_between(v1, v2) {
-    dot = vec_dot(v1, v2)
-    len1 = vec_length(v1)
-    len2 = vec_length(v2)
-    
-    when len1 == 0 or len2 == 0 {
-        give 0
-    }
-    
-    cos_angle = clamp(dot / (len1 * len2), -1, 1)
-    give rad_to_deg(acos_simple(cos_angle))
-}
-
-// Simple acos using approximation
-task acos_simple(x) {
-    x = clamp(x, -1, 1)
-    
-    // Use polynomial approximation
-    result = 1.5707963267948966 - x
-    result = result - 0.5 * pow(x, 3) / 3
-    result = result - 0.5 * 0.75 * pow(x, 5) / 5
-    result = result - 0.5 * 0.75 * 0.875 * pow(x, 7) / 7
-    
-    give result
-}
-
